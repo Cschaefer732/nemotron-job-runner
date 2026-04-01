@@ -1439,7 +1439,7 @@ from app.hooks_router import router as hooks_router
 app.include_router(health_router)
 app.include_router(jobs_router)
 app.include_router(hooks_router)
-app.mount("/mcp", mcp.sse_app())
+app.mount("/mcp", mcp.http_app(transport="sse"))  # fastmcp 3.x — exposes /mcp/sse + /mcp/messages
 ```
 
 - [ ] **Step 2: Run full test suite**
