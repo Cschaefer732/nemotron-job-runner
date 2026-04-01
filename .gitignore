@@ -1,0 +1,10 @@
+venv/
+data/jobs.db
+logs/*.log
+models/*.gguf
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+dist/
+build/
