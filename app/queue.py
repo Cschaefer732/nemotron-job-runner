@@ -122,15 +122,27 @@ def update_job(
     scheduled_at: Optional[str] = None,
     status: Optional[str] = None,
 ) -> bool:
-    """Returns False if job not found or update not allowed."""
+    """Returns False if job not found or update not allowed.
+
+    Rules:
+    - status: only 'cancelled' may be set externally; pending and running jobs may be cancelled.
+    - priority/payload/scheduled_at: only editable while job is pending.
+    """
     row = conn.execute("SELECT status FROM jobs WHERE id=?", (job_id,)).fetchone()
     if row is None:
         return False
     current_status = row["status"]
+
+    # Only 'cancelled' is an externally-settable status
+    if status is not None and status != "cancelled":
+        return False
     if status == "cancelled" and current_status not in ("pending", "running"):
         return False
-    if status not in (None, "cancelled") and current_status != "pending":
-        return False
+
+    # Field edits (priority/payload/scheduled_at) only allowed on pending jobs
+    if any(v is not None for v in (priority, payload, scheduled_at)):
+        if current_status != "pending":
+            return False
 
     sets = ["updated_at=?"]
     params: list = [_now()]
@@ -158,9 +170,9 @@ def delete_job(conn: sqlite3.Connection, job_id: str) -> bool:
         return False
     if row["status"] not in ("completed", "failed", "cancelled"):
         return False
-    conn.execute("DELETE FROM job_results WHERE job_id=?", (job_id,))
-    conn.execute("DELETE FROM jobs WHERE id=?", (job_id,))
-    conn.commit()
+    with conn:
+        conn.execute("DELETE FROM job_results WHERE job_id=?", (job_id,))
+        conn.execute("DELETE FROM jobs WHERE id=?", (job_id,))
     return True
 
 
@@ -187,9 +199,11 @@ class Worker:
             self._stop.wait(2)
 
     def _process_next(self) -> None:
+        # Use datetime(scheduled_at) to handle ISO 8601 strings with timezone offsets,
+        # which don't compare correctly against datetime('now') as raw strings.
         row = self._conn.execute(
             "SELECT * FROM jobs WHERE status='pending' "
-            "AND (scheduled_at IS NULL OR scheduled_at <= datetime('now')) "
+            "AND (scheduled_at IS NULL OR datetime(scheduled_at) <= datetime('now')) "
             "ORDER BY priority ASC, created_at ASC LIMIT 1"
         ).fetchone()
         if row is None:
@@ -199,18 +213,24 @@ class Worker:
         job_type = row["type"]
         payload = json.loads(row["payload"])
 
-        self._conn.execute(
-            "UPDATE jobs SET status='running', started_at=?, updated_at=? WHERE id=?",
-            (_now(), _now(), job_id),
+        # Add AND status='pending' guard: if the job was cancelled between the SELECT
+        # and this UPDATE, rowcount will be 0 and we skip execution.
+        now = _now()
+        cur = self._conn.execute(
+            "UPDATE jobs SET status='running', started_at=?, updated_at=? WHERE id=? AND status='pending'",
+            (now, now, job_id),
         )
         self._conn.commit()
+        if cur.rowcount == 0:
+            return  # job was cancelled or picked up by another process between SELECT and UPDATE
         logger.info("Running job %s type=%s", job_id, job_type)
 
         handler = self._registry.get(job_type)
         if handler is None:
+            now = _now()
             self._conn.execute(
                 "UPDATE jobs SET status='failed', error=?, completed_at=?, updated_at=? WHERE id=?",
-                (f"No handler for job type: {job_type}", _now(), _now(), job_id),
+                (f"No handler for job type: {job_type}", now, now, job_id),
             )
             self._conn.commit()
             return
@@ -218,20 +238,22 @@ class Worker:
         try:
             result = handler.run(job_id, payload)
             result_id = str(uuid.uuid4())
+            now = _now()
             self._conn.execute(
                 "INSERT INTO job_results (id, job_id, result, created_at) VALUES (?, ?, ?, ?)",
-                (result_id, job_id, json.dumps(result), _now()),
+                (result_id, job_id, json.dumps(result), now),
             )
             self._conn.execute(
                 "UPDATE jobs SET status='completed', completed_at=?, updated_at=? WHERE id=?",
-                (_now(), _now(), job_id),
+                (now, now, job_id),
             )
             self._conn.commit()
             logger.info("Job %s completed", job_id)
         except Exception as exc:
+            now = _now()
             self._conn.execute(
                 "UPDATE jobs SET status='failed', error=?, completed_at=?, updated_at=? WHERE id=?",
-                (str(exc), _now(), _now(), job_id),
+                (str(exc), now, now, job_id),
             )
             self._conn.commit()
             logger.exception("Job %s failed", job_id)
