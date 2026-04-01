@@ -37,11 +37,18 @@ def register_hook(hook_name: str, body: HookRegister, request: Request):
 
 
 @router.post("/{hook_name}", status_code=201)
-def trigger_hook(hook_name: str, request: Request):
+async def trigger_hook(hook_name: str, request: Request):
     conn = request.app.state.conn
     row = conn.execute("SELECT * FROM hooks WHERE name=?", (hook_name,)).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail=f"Hook '{hook_name}' not registered")
     hook_payload = json.loads(row["payload"])
+    # Merge request body over the stored default payload (body fields take precedence)
+    try:
+        body = await request.json()
+        if isinstance(body, dict):
+            hook_payload.update(body)
+    except Exception:
+        pass  # empty or non-JSON body is fine
     job_id = q.create_job(conn, row["job_type"], hook_payload, trigger="hook")
     return q.get_job(conn, job_id)

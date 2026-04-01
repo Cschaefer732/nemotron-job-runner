@@ -22,6 +22,7 @@ def load_handlers() -> dict[str, JobHandler]:
     Skips the base JobHandler class itself.
     """
     handlers: dict[str, JobHandler] = {}
+    failed_modules: list[str] = []
     package_dir = Path(__file__).parent
     package_name = __name__  # "app.handlers"
 
@@ -31,6 +32,7 @@ def load_handlers() -> dict[str, JobHandler]:
             module = importlib.import_module(full_name)
         except Exception:
             logger.exception("Failed to import handler module %s", full_name)
+            failed_modules.append(full_name)
             continue
 
         for _, obj in inspect.getmembers(module, inspect.isclass):
@@ -43,4 +45,11 @@ def load_handlers() -> dict[str, JobHandler]:
                 handlers[instance.job_type] = instance
                 logger.debug("Registered handler: %s", instance.job_type)
 
+    if failed_modules:
+        logger.warning("Handler modules that FAILED to import: %s", failed_modules)
+    logger.info(
+        "Handler registry: registered=%s | failed_modules=%s",
+        list(handlers.keys()),
+        failed_modules,
+    )
     return handlers

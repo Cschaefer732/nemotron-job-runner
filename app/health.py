@@ -7,6 +7,8 @@ logger = logging.getLogger(__name__)
 
 
 def get_vram_stats() -> dict:
+    # --id=1 targets GPU index 1 (RTX 4070 Ti) by NVML order, matching llama.cpp --main-gpu 1.
+    # Verify with: nvidia-smi -L  (GPU 1 must be "NVIDIA GeForce RTX 4070 Ti")
     try:
         result = subprocess.run(
             [
@@ -19,6 +21,9 @@ def get_vram_stats() -> dict:
             text=True,
             timeout=5,
         )
+        if result.returncode != 0:
+            logger.warning("nvidia-smi exited %d: %s", result.returncode, result.stderr.strip())
+            return {"error": f"nvidia-smi exit {result.returncode}: {result.stderr.strip()}"}
         used, free, total = [int(x.strip()) for x in result.stdout.strip().split(",")]
         return {"used_mb": used, "free_mb": free, "total_mb": total, "gpu": "RTX 4070 Ti"}
     except Exception as exc:

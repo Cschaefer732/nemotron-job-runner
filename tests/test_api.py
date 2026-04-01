@@ -48,7 +48,23 @@ def test_patch_invalid_status_rejected(client):
     r = client.post("/jobs", json={"type": "t", "payload": {}})
     job_id = r.json()["id"]
     r2 = client.patch(f"/jobs/{job_id}", json={"status": "completed"})
-    assert r2.status_code == 422
+    assert r2.status_code == 422  # Pydantic rejects non-cancelled status
+
+
+def test_patch_running_job_returns_409(client):
+    r = client.post("/jobs", json={"type": "t", "payload": {}})
+    job_id = r.json()["id"]
+    from app.main import app
+    conn = app.state.conn
+    conn.execute("UPDATE jobs SET status='running' WHERE id=?", (job_id,))
+    conn.commit()
+    r2 = client.patch(f"/jobs/{job_id}", json={"priority": 1})
+    assert r2.status_code == 409  # exists but cannot be modified
+
+
+def test_patch_nonexistent_job_returns_404(client):
+    r = client.patch("/jobs/nonexistent-uuid", json={"priority": 1})
+    assert r.status_code == 404  # distinct from 409 (found but blocked)
 
 
 def test_delete_completed_job(client):

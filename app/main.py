@@ -29,7 +29,7 @@ async def _wait_for_llama() -> None:
         logger.info("Skipping llama.cpp health check (NEMOTRON_SKIP_LLAMA_HEALTH=1)")
         return
     logger.info("Waiting for llama.cpp server at %s ...", LLAMA_HEALTH_URL)
-    attempts = HEALTH_TIMEOUT_S // HEALTH_INTERVAL_S
+    attempts = HEALTH_TIMEOUT_S // HEALTH_INTERVAL_S + 1  # +1 so final attempt is at exactly TIMEOUT_S
     async with httpx.AsyncClient() as client:
         for i in range(attempts):
             try:

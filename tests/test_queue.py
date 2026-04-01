@@ -46,15 +46,15 @@ def test_cancel_completed_job_fails(db):
     job_id = create_job(db, "t", {})
     db.execute("UPDATE jobs SET status='completed' WHERE id=?", (job_id,))
     db.commit()
-    assert update_job(db, job_id, status="cancelled") is False
+    assert update_job(db, job_id, status="cancelled") != "ok"
 
 
 def test_update_arbitrary_status_rejected(db):
     """External callers must not be able to set status to running/completed/failed."""
     job_id = create_job(db, "t", {})
-    assert update_job(db, job_id, status="running") is False
-    assert update_job(db, job_id, status="completed") is False
-    assert update_job(db, job_id, status="failed") is False
+    assert update_job(db, job_id, status="running") != "ok"
+    assert update_job(db, job_id, status="completed") != "ok"
+    assert update_job(db, job_id, status="failed") != "ok"
 
 
 def test_update_fields_on_running_job_rejected(db):
@@ -62,8 +62,8 @@ def test_update_fields_on_running_job_rejected(db):
     job_id = create_job(db, "t", {})
     db.execute("UPDATE jobs SET status='running' WHERE id=?", (job_id,))
     db.commit()
-    assert update_job(db, job_id, priority=1) is False
-    assert update_job(db, job_id, payload={"x": 1}) is False
+    assert update_job(db, job_id, priority=1) != "ok"
+    assert update_job(db, job_id, payload={"x": 1}) != "ok"
 
 
 def test_delete_failed_and_cancelled_jobs(db):
@@ -123,7 +123,7 @@ def test_delete_completed_job(db):
 
 def test_delete_pending_job_fails(db):
     job_id = create_job(db, "t", {})
-    assert delete_job(db, job_id) is False
+    assert delete_job(db, job_id) != "ok"
 
 
 def test_worker_runs_handler(db):

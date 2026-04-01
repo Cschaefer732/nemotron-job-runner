@@ -1,11 +1,13 @@
 import logging
+import os
 from pathlib import Path
 from app.handlers import JobHandler
 
 logger = logging.getLogger(__name__)
 
-# Sentinel file watched by Smart Connections plugin to trigger re-embedding
-VAULT_PATH = Path(r"E:\ObsidianVault\AdminAssistantMemory")
+# Vault path driven by env var — falls back to the known local path.
+# Override with: set NEMOTRON_VAULT_PATH=E:\path\to\vault
+VAULT_PATH = Path(os.environ.get("NEMOTRON_VAULT_PATH", r"E:\ObsidianVault\AdminAssistantMemory"))
 SENTINEL_FILE = VAULT_PATH / ".smart-env" / "reembed_trigger"
 
 
@@ -20,6 +22,11 @@ class SmartConnectionsReembed(JobHandler):
         The Smart Connections plugin must be configured to watch for this file.
         If the sentinel approach is not supported, swap in an Obsidian URI call here.
         """
+        if not VAULT_PATH.exists():
+            raise RuntimeError(
+                f"Vault path does not exist: {VAULT_PATH}. "
+                "Set NEMOTRON_VAULT_PATH env var to the correct location."
+            )
         logger.info("Triggering Smart Connections re-embed (job %s)", job_id)
         SENTINEL_FILE.parent.mkdir(parents=True, exist_ok=True)
         SENTINEL_FILE.touch()

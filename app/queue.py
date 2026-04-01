@@ -121,8 +121,8 @@ def update_job(
     payload: Optional[dict] = None,
     scheduled_at: Optional[str] = None,
     status: Optional[str] = None,
-) -> bool:
-    """Returns False if job not found or update not allowed.
+) -> str:
+    """Returns 'ok', 'not_found', or 'conflict'.
 
     Rules:
     - status: only 'cancelled' may be set externally; pending and running jobs may be cancelled.
@@ -130,19 +130,19 @@ def update_job(
     """
     row = conn.execute("SELECT status FROM jobs WHERE id=?", (job_id,)).fetchone()
     if row is None:
-        return False
+        return "not_found"
     current_status = row["status"]
 
     # Only 'cancelled' is an externally-settable status
     if status is not None and status != "cancelled":
-        return False
+        return "conflict"
     if status == "cancelled" and current_status not in ("pending", "running"):
-        return False
+        return "conflict"
 
     # Field edits (priority/payload/scheduled_at) only allowed on pending jobs
     if any(v is not None for v in (priority, payload, scheduled_at)):
         if current_status != "pending":
-            return False
+            return "conflict"
 
     sets = ["updated_at=?"]
     params: list = [_now()]
@@ -161,7 +161,7 @@ def update_job(
     params.append(job_id)
     conn.execute(f"UPDATE jobs SET {', '.join(sets)} WHERE id=?", params)
     conn.commit()
-    return True
+    return "ok"
 
 
 def delete_job(conn: sqlite3.Connection, job_id: str) -> bool:
@@ -189,6 +189,8 @@ class Worker:
     def stop(self) -> None:
         self._stop.set()
         self._thread.join(timeout=10)
+        if self._thread.is_alive():
+            logger.warning("Worker thread did not stop within 10s — a job may have been interrupted")
 
     def _loop(self) -> None:
         while not self._stop.is_set():

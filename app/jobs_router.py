@@ -44,7 +44,7 @@ def get_job(job_id: str, request: Request):
 @router.patch("/{job_id}")
 def patch_job(job_id: str, body: JobPatch, request: Request):
     conn = request.app.state.conn
-    updated = q.update_job(
+    result = q.update_job(
         conn,
         job_id,
         priority=body.priority,
@@ -52,8 +52,10 @@ def patch_job(job_id: str, body: JobPatch, request: Request):
         scheduled_at=body.scheduled_at,
         status=body.status,
     )
-    if not updated:
-        raise HTTPException(status_code=404, detail="Job not found or cannot be modified")
+    if result == "not_found":
+        raise HTTPException(status_code=404, detail="Job not found")
+    if result == "conflict":
+        raise HTTPException(status_code=409, detail="Job cannot be modified in its current state")
     return q.get_job(conn, job_id)
 
 

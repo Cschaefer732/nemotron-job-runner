@@ -1,13 +1,20 @@
 from pydantic import BaseModel, field_validator
-from typing import Optional
+from typing import Literal, Optional
 
 
 class JobSubmit(BaseModel):
     type: str
     payload: dict = {}
     priority: int = 50
-    trigger: str = "manual"
+    trigger: Literal["manual", "cron", "agent", "hook"] = "manual"
     scheduled_at: Optional[str] = None
+
+    @field_validator("priority")
+    @classmethod
+    def priority_in_range(cls, v: int) -> int:
+        if not 0 <= v <= 100:
+            raise ValueError("priority must be between 0 (highest) and 100 (lowest)")
+        return v
 
 
 class JobPatch(BaseModel):
